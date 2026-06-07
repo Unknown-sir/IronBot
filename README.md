@@ -184,27 +184,6 @@ Users receive trials from:
 
 ---
 
-## Publishing to GitHub
-
-After extracting this package:
-
-```bash
-cd IronBot
-git init
-git add .
-git commit -m "Initial Iron Bot release"
-git branch -M main
-git remote add origin https://github.com/Unknown-sir/IronBot.git
-git push -u origin main
-```
-
-Or use the helper script:
-
-```bash
-bash scripts/publish_to_github.sh
-```
-
----
 
 ## Security notes
 
