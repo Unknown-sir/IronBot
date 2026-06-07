@@ -187,25 +187,6 @@ xui-watcher2
 
 ---
 
-## انتشار روی GitHub
-
-بعد از استخراج این بسته:
-
-```bash
-cd IronBot
-git init
-git add .
-git commit -m "Initial Iron Bot release"
-git branch -M main
-git remote add origin https://github.com/Unknown-sir/IronBot.git
-git push -u origin main
-```
-
-یا از اسکریپت آماده استفاده کنید:
-
-```bash
-bash scripts/publish_to_github.sh
-```
 
 ---
 
