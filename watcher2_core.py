@@ -12196,7 +12196,7 @@ def _bulkfree_run(admin_chat, temp):
     if is_ip and not protocols:
         send_message(admin_chat, 'برای ساخت عمده روی IronPanel حداقل یک پروتکل لازم است.', reply_markup=admin_main_keyboard()); return
     set_user_state(admin_chat, '', {})
-    send_message(admin_chat, f'⏳ ساخت عمده {count} کانفیگ شروع شد. خروجی نهایی به صورت فایل ارسال می‌شود.')
+    send_message(admin_chat, f'⏳ ساخت عمده {count} کانفیگ شروع شد. لینک ساب هر کانفیگ هم‌زمان یک‌به‌یک برای شما ارسال می‌شود.')
     ok_items, fail_items = [], []
     for number in range(start, end + 1):
         uname = f'{prefix}{number}'
@@ -12205,6 +12205,19 @@ def _bulkfree_run(admin_chat, temp):
             oid = _ib199_insert_bulk_order(admin_chat, gb, duration_days, panel_id, inbound_id, uname, pwd, protocols)
             result = create_xui_client_for_order(oid, restart=False)
             ok_items.append((oid, uname, pwd, result))
+            # v19.1.1: forward each config's sub link to the admin immediately, one message per config.
+            try:
+                sub = result.get('sub_url') or ''
+                cl = result.get('config_link') or ''
+                send_message(
+                    admin_chat,
+                    f'✅ کانفیگ <code>{html.escape(uname)}</code> ساخته شد.\n\n'
+                    f'لینک کانفیگ:\n<code>{html.escape(cl)}</code>\n'
+                    + (f'\nلینک سابسکریپشن:\n<code>{html.escape(sub)}</code>' if sub else ''),
+                    disable_web_page_preview=False,
+                )
+            except Exception:
+                logging.exception('bulk per-config admin notification failed')
         except Exception as e:
             logging.exception('v19.0.9 bulk create failed')
             fail_items.append((uname, str(e)))
@@ -13453,10 +13466,21 @@ def init_app_db():
 
 def _ib1915_user_count(value, default=1):
     try:
-        n = int(float(value or default))
+        n = int(float(value if value not in (None, '') else default))
     except Exception:
         n = int(default or 1)
+    if n <= 0:
+        return 0
     return max(1, min(100, n))
+
+
+def _ib_user_count_label(value):
+    n = _ib1915_user_count(value)
+    if n <= 0:
+        return 'نامحدود'
+    if n == 1:
+        return 'تک‌کاربره'
+    return f'{n} کاربر'
 
 
 def _ib1915_plan_user_count(plan):
@@ -13473,17 +13497,18 @@ def _ib1915_order_user_count(row):
         return 1
     order_count = 1
     try:
-        if _row_has(row, 'user_count') and row['user_count']:
+        if _row_has(row, 'user_count'):
             order_count = _ib1915_user_count(row['user_count'])
     except Exception:
         order_count = 1
     # Orders created by older builds receive the migration default (1). If their
-    # plan is already multi-user, recover that count unless this is a bundle child.
+    # plan is already multi-user (or unlimited, i.e. 0), recover that count unless
+    # this is a bundle child.
     try:
         is_child = _row_has(row, 'bundle_parent_id') and bool(row['bundle_parent_id'])
         if not is_child and row['plan_id']:
             plan_count = _ib1915_plan_user_count(plan_by_id(row['plan_id']))
-            if order_count <= 1 and plan_count > 1:
+            if _ib1915_user_count(order_count) <= 1 and plan_count != 1:
                 return plan_count
     except Exception:
         pass
@@ -13853,9 +13878,10 @@ def _planwiz_summary(temp):
     base = IB1915_prev_planwiz_summary(temp)
     base = '\n'.join(line for line in str(base).splitlines() if 'حداکثر IP مجاز:' not in line)
     count = _ib1915_user_count(temp.get('user_count', 1))
+    cap_label = 'نامحدود' if count == 0 else f'{count} کاربر/IP'
     return (
         base
-        + f"\nظرفیت همان یک کانفیگ: <b>{count} کاربر/IP</b>"
+        + f"\nظرفیت همان یک کانفیگ: <b>{cap_label}</b>"
         + "\nتحویل به خریدار: <b>فقط یک کانفیگ / یک لینک سابسکریپشن</b>"
     )
 
@@ -13898,7 +13924,7 @@ def plans_text():
             pass
         lines.append(
             f"#{p['id']} | {st} | {html.escape(p['name'])} | حجم: {_ib193_gb_label(p['gb'])} | زمان: {html.escape(dur)} | "
-            f"ظرفیت یک کانفیگ: {count} کاربر/IP | قیمت: {money(p['price'])} {html.escape(CFG.get('CURRENCY_LABEL','تومان'))} | "
+            f"ظرفیت یک کانفیگ: {html.escape(_ib_user_count_label(count))} | قیمت: {money(p['price'])} {html.escape(CFG.get('CURRENCY_LABEL','تومان'))} | "
             f"مشتری: {aud_map.get(aud,aud)} | پنل: {html.escape(panel)} | inbound: {html.escape(str(inbound))} | "
             f"دامنه: <code>{html.escape(_ib193_plan_domain_label(p))}</code>{proto_text}"
         )
@@ -13913,7 +13939,8 @@ def _ib193_plan_detail_text(plan_id):
     if not p:
         return base
     count = _ib1916_plan_user_limit(p)
-    return base + f"\nظرفیت همان یک کانفیگ: <b>{count} کاربر/IP</b>\nتعداد کانفیگ تحویلی: <b>1</b>"
+    cap_label = 'نامحدود' if count == 0 else f'{count} کاربر/IP'
+    return base + f"\nظرفیت همان یک کانفیگ: <b>{cap_label}</b>\nتعداد کانفیگ تحویلی: <b>1</b>"
 
 
 def _ib193_plan_edit_keyboard(plan_id):
@@ -13943,16 +13970,17 @@ def _ib193_update_plan_field(plan_id, field, value):
     if field in {'usercount', 'user_count', 'users', 'count', 'iplimit', 'ip_limit'}:
         try:
             count = int(float(str(value or '').replace(',', '').strip()))
-            assert 1 <= count <= 100
+            assert 0 <= count <= 100
         except Exception:
-            return False, 'ظرفیت کانفیگ باید عددی بین 1 تا 100 باشد.'
+            return False, 'ظرفیت کانفیگ باید عددی بین 0 تا 100 باشد؛ 0 یعنی نامحدود.'
         try:
             with app_conn() as conn:
                 conn.execute(
                     'UPDATE sales_plans SET user_count=?, ip_limit=?, updated_at=? WHERE id=?',
                     (count, count, now_str(), int(plan_id)),
                 )
-            return True, f'این پلن یک کانفیگ می‌سازد و ظرفیت آن روی {count} کاربر/IP تنظیم شد.'
+            cap_label = 'نامحدود' if count == 0 else f'{count} کاربر/IP'
+            return True, f'این پلن یک کانفیگ می‌سازد و ظرفیت آن روی {cap_label} تنظیم شد.'
         except Exception as e:
             return False, str(e)
     return IB1916_prev_update_plan_field(plan_id, field, value)
@@ -14176,16 +14204,17 @@ def handle_admin_command(chat_id, text):
         if state in {'planwiz:user_count', 'planwiz:ip_limit'}:
             try:
                 count = int(float(str(text).replace(',', '').strip()))
-                assert 1 <= count <= 100
+                assert 0 <= count <= 100
             except Exception:
-                send_message(chat_id, 'ظرفیت نامعتبر است. عددی بین 1 تا 100 وارد کنید.')
+                send_message(chat_id, 'ظرفیت نامعتبر است. عددی بین 0 تا 100 وارد کنید؛ 0 یعنی نامحدود.')
                 return True
             temp['user_count'] = count
             temp['ip_limit'] = count
             set_user_state(chat_id, 'planwiz:price', temp)
+            cap_label = 'نامحدود' if count == 0 else f'{count}'
             send_message(
                 chat_id,
-                f'قیمت پلن یک‌کانفیگه با ظرفیت {count} کاربر/IP را وارد کنید. مثال: <code>750000</code>'
+                f'قیمت پلن یک‌کانفیگه با ظرفیت {cap_label} کاربر/IP را وارد کنید. مثال: <code>750000</code>'
             )
             return True
     return IB1916_prev_handle_admin_command(chat_id, text)
