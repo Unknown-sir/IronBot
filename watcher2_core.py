@@ -14475,13 +14475,13 @@ WATCHER2_VERSION = 'v19.0.17-admin-removal'
 # an admin unbans them. Ban data lives in the banned_users SQLite table.
 # ==============================
 
-IB1910_prev_admin_main_keyboard = admin_main_keyboard
-IB1910_prev_handle_callback = handle_callback
-IB1910_prev_handle_text_message = handle_text_message
+IB19100_prev_admin_main_keyboard = admin_main_keyboard
+IB19100_prev_handle_callback = handle_callback
+IB19100_prev_handle_text_message = handle_text_message
 
 
 def admin_main_keyboard():
-    data = IB1910_prev_admin_main_keyboard()
+    data = IB19100_prev_admin_main_keyboard()
     rows = data.get('inline_keyboard') or []
     insert_at = len(rows) - 1 if len(rows) >= 1 else len(rows)
     rows.insert(insert_at, [
@@ -14523,7 +14523,7 @@ def handle_text_message(msg):
         )
         return True
 
-    return IB1910_prev_handle_text_message(msg)
+    return IB19100_prev_handle_text_message(msg)
 
 
 def handle_callback(cb):
@@ -14597,7 +14597,7 @@ def handle_callback(cb):
         send_message(admin_chat, f'✅ کاربر <code>{html.escape(target_id)}</code> از مسدودیت خارج شد.', reply_markup=admin_main_keyboard())
         return
 
-    return IB1910_prev_handle_callback(cb)
+    return IB19100_prev_handle_callback(cb)
 
 
 WATCHER2_VERSION = 'v19.1.0-ban-unban'
