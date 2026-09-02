@@ -2050,10 +2050,19 @@ def handle_callback(cb):
 def process_update(update):
     try:
         if "callback_query" in update:
-            handle_callback(update["callback_query"])
+            cb = update["callback_query"]
+            cb_from = str((cb.get("from") or {}).get("id"))
+            cb_chat = cb.get("message") or {}
+            cb_chat_id = str((cb_chat.get("chat") or {}).get("id", cb_from))
+            if is_banned(cb_from) and not is_admin(cb_from) and not is_admin(cb_chat_id):
+                return
+            handle_callback(cb)
             return
         msg = update.get("message") or update.get("edited_message")
         if not msg:
+            return
+        chat_id = str((msg.get("chat") or {}).get("id"))
+        if is_banned(chat_id) and not is_admin(chat_id):
             return
         if msg.get("text") is not None:
             handle_text_message(msg)
@@ -2331,6 +2340,67 @@ def _add_col(conn, table, coldef):
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {coldef}")
 
 
+def is_banned(chat_id):
+    with app_conn() as conn:
+        row = conn.execute("SELECT 1 FROM banned_users WHERE user_chat_id=?", (str(chat_id),)).fetchone()
+        return bool(row)
+
+
+def ban_user(chat_id, reason="", admin_id=""):
+    with app_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO banned_users(user_chat_id, reason, banned_by, banned_at) VALUES(?,?,?,?)",
+            (str(chat_id), str(reason or ""), str(admin_id or ""), now_str()),
+        )
+
+
+def unban_user(chat_id):
+    with app_conn() as conn:
+        conn.execute("DELETE FROM banned_users WHERE user_chat_id=?", (str(chat_id),))
+
+
+def list_banned_users():
+    with app_conn() as conn:
+        return conn.execute("SELECT * FROM banned_users ORDER BY banned_at DESC").fetchall()
+
+
+def banned_list_text():
+    rows = list_banned_users()
+    if not rows:
+        return "هیچ کاربر مسدود شده‌ای وجود ندارد."
+    lines = ["<b>🚫 لیست کاربران مسدود شده</b>"]
+    for r in rows:
+        lines.append(
+            f"<code>{html.escape(r['user_chat_id'])}</code> | "
+            f"علت: {html.escape(r['reason'] or '-')} | "
+            f"توسط: <code>{html.escape(r['banned_by'] or '-')}</code> | "
+            f"{html.escape(r['banned_at'] or '-')}"
+        )
+    return "\n".join(lines)
+
+
+def banned_list_keyboard():
+    rows = list_banned_users()
+    if not rows:
+        return kb([[{"text": "🔙 برگشت", "callback_data": "admin:panel"}]])
+    buttons = []
+    for r in rows:
+        cid = r["user_chat_id"]
+        label = cid
+        try:
+            with app_conn() as conn:
+                u = conn.execute("SELECT username, first_name FROM users WHERE chat_id=?", (cid,)).fetchone()
+                if u:
+                    name = (u["first_name"] or "").strip()
+                    uname = u["username"] or ""
+                    label = f"{name or ('@' + uname) if uname else ''} ({cid})"
+        except Exception:
+            pass
+        buttons.append([{"text": f"✅ آنبن {label}", "callback_data": f"admin:unbanconfirm:{cid}"}])
+    buttons.append([{"text": "🔙 برگشت", "callback_data": "admin:panel"}])
+    return kb(buttons)
+
+
 def init_app_db():
     BASE_init_app_db()
     with app_conn() as conn:
@@ -2381,6 +2451,12 @@ def init_app_db():
                 sender_chat_id TEXT NOT NULL,
                 message_text TEXT,
                 created_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS banned_users (
+                user_chat_id TEXT PRIMARY KEY,
+                reason TEXT,
+                banned_by TEXT,
+                banned_at TEXT
             );
         ''')
         n = conn.execute("SELECT COUNT(*) c FROM sales_plans").fetchone()["c"]
@@ -10878,7 +10954,7 @@ def _remote_panel_login(panel):
         'username': username,
         'password': password,
     }).encode()
-    req = urllib.request.Request(url, data=form, headers={'Content-Type':'application/x-www-form-urlencoded', 'User-Agent':'IronBot/19.0.17'}, method='POST')
+    req = urllib.request.Request(url, data=form, headers={'Content-Type':'application/x-www-form-urlencoded', 'User-Agent':'IronBot/19.1.0'}, method='POST')
     try:
         with _urlopen_with_local_ssl(req, timeout=18) as resp:
             raw = resp.read().decode('utf-8', 'replace')
@@ -14152,7 +14228,7 @@ WATCHER2_VERSION = 'v19.0.16-single-config-user-limit'
 
 
 # ==============================
-# IronBot v19.0.17 - admin manager removal
+# IronBot v19.1.0 - admin management + ban/unban users
 # The existing multi-admin storage remains ADMIN_CHAT_IDS. This layer adds a
 # safe management screen and two-step removal without changing DB schema.
 # ==============================
@@ -14390,6 +14466,141 @@ def handle_callback(cb):
 
 
 WATCHER2_VERSION = 'v19.0.17-admin-removal'
+
+
+# ==============================
+# IronBot v19.1.0 - Ban / Unban users
+# Adds ban/unban controls to the admin panel. Banned users receive no
+# response from the bot in any situation (text, callbacks, media) until
+# an admin unbans them. Ban data lives in the banned_users SQLite table.
+# ==============================
+
+IB1910_prev_admin_main_keyboard = admin_main_keyboard
+IB1910_prev_handle_callback = handle_callback
+IB1910_prev_handle_text_message = handle_text_message
+
+
+def admin_main_keyboard():
+    data = IB1910_prev_admin_main_keyboard()
+    rows = data.get('inline_keyboard') or []
+    insert_at = len(rows) - 1 if len(rows) >= 1 else len(rows)
+    rows.insert(insert_at, [
+        {"text": "\U0001f6ab \u0645\u0633\u062f\u0648\u062f \u06a9\u0631\u062f\u0646 \u06a9\u0627\u0631\u0628\u0631", "callback_data": "admin:ban"},
+        {"text": "\u2705 \u0622\u0646\u0628\u0646 \u06a9\u0631\u062f\u0646", "callback_data": "admin:unban"},
+    ])
+    return kb(rows)
+
+
+def handle_text_message(msg):
+    chat = msg.get('chat', {})
+    msg_from = msg.get('from', {})
+    chat_id = str(chat.get('id'))
+    upsert_user(chat_id, msg_from)
+    text = msg.get('text', '') or ''
+    state, _temp = get_user_state(chat_id)
+
+    if state == 'await_ban_chatid' and is_admin(chat_id):
+        target_id = text.strip()
+        set_user_state(chat_id, '', {})
+        if not target_id:
+            send_message(chat_id, 'Chat ID نمی‌تواند خالی باشد.', reply_markup=admin_main_keyboard())
+            return True
+        if is_admin(target_id):
+            send_message(chat_id, '❌ نمی‌توان مدیر را مسدود کرد.', reply_markup=admin_main_keyboard())
+            return True
+        if is_banned(target_id):
+            send_message(chat_id, f'⚠️ کاربر <code>{html.escape(target_id)}</code> قبلاً مسدود شده است.', reply_markup=admin_main_keyboard())
+            return True
+        send_message(
+            chat_id,
+            f'🚫 آیا از مسدود کردن کاربر <code>{html.escape(target_id)}</code> مطمئن هستید؟',
+            reply_markup=kb([
+                [
+                    {"text": '✅ بله، مسدود شود', "callback_data": f"admin:banconfirm:{target_id}"},
+                    {"text": '❌ خیر، لغو', "callback_data": "admin:panel"},
+                ],
+            ]),
+        )
+        return True
+
+    return IB1910_prev_handle_text_message(msg)
+
+
+def handle_callback(cb):
+    data = str(cb.get('data', '') or '')
+    cb_id = cb.get('id')
+    from_id = str((cb.get('from') or {}).get('id'))
+    msg = cb.get('message') or {}
+    msg_chat = str((msg.get('chat') or {}).get('id', from_id))
+
+    if data == 'admin:ban':
+        if not is_admin(from_id) and not is_admin(msg_chat):
+            tg_api('answerCallbackQuery', {'callback_query_id': cb_id, 'text': 'دسترسی مدیر ندارید.'}, timeout=10)
+            return
+        admin_chat = from_id if is_admin(from_id) else msg_chat
+        set_user_state(admin_chat, 'await_ban_chatid', {})
+        send_message(
+            admin_chat,
+            '🚫 <b>مسدود کردن کاربر</b>\n\n'
+            'Chat ID کاربر مورد نظر را ارسال کنید.\n'
+            'برای لغو، دکمه برگشت را بزنید.',
+            reply_markup=kb([[{"text": '🔙 برگشت', "callback_data": "admin:panel"}]]),
+        )
+        return
+
+    if data.startswith('admin:banconfirm:'):
+        if not is_admin(from_id) and not is_admin(msg_chat):
+            tg_api('answerCallbackQuery', {'callback_query_id': cb_id, 'text': 'دسترسی مدیر ندارید.'}, timeout=10)
+            return
+        admin_chat = from_id if is_admin(from_id) else msg_chat
+        try:
+            target_id = data.split(':', 2)[2]
+        except Exception:
+            return
+        if is_admin(target_id):
+            tg_api('answerCallbackQuery', {'callback_query_id': cb_id, 'text': '❌ نمی‌توان مدیر را مسدود کرد.'}, timeout=10)
+            return
+        if is_banned(target_id):
+            tg_api('answerCallbackQuery', {'callback_query_id': cb_id, 'text': '⚠️ این کاربر قبلاً مسدود شده.'}, timeout=10)
+            return
+        ban_user(target_id, 'مسدود شده توسط مدیر', admin_id=admin_chat)
+        tg_api('answerCallbackQuery', {'callback_query_id': cb_id, 'text': '✅ کاربر مسدود شد.'}, timeout=10)
+        send_message(admin_chat, f'✅ کاربر <code>{html.escape(target_id)}</code> مسدود شد.', reply_markup=admin_main_keyboard())
+        return
+
+    if data == 'admin:unban':
+        if not is_admin(from_id) and not is_admin(msg_chat):
+            tg_api('answerCallbackQuery', {'callback_query_id': cb_id, 'text': 'دسترسی مدیر ندارید.'}, timeout=10)
+            return
+        admin_chat = from_id if is_admin(from_id) else msg_chat
+        rows = list_banned_users()
+        if not rows:
+            send_message(admin_chat, 'هیچ کاربر مسدود شده‌ای وجود ندارد.', reply_markup=admin_main_keyboard())
+        else:
+            send_message(admin_chat, banned_list_text(), reply_markup=banned_list_keyboard())
+        return
+
+    if data.startswith('admin:unbanconfirm:'):
+        if not is_admin(from_id) and not is_admin(msg_chat):
+            tg_api('answerCallbackQuery', {'callback_query_id': cb_id, 'text': 'دسترسی مدیر ندارید.'}, timeout=10)
+            return
+        admin_chat = from_id if is_admin(from_id) else msg_chat
+        try:
+            target_id = data.split(':', 2)[2]
+        except Exception:
+            return
+        if not is_banned(target_id):
+            tg_api('answerCallbackQuery', {'callback_query_id': cb_id, 'text': '⚠️ این کاربر مسدود نیست.'}, timeout=10)
+            return
+        unban_user(target_id)
+        tg_api('answerCallbackQuery', {'callback_query_id': cb_id, 'text': '✅ کاربر آنبن شد.'}, timeout=10)
+        send_message(admin_chat, f'✅ کاربر <code>{html.escape(target_id)}</code> از مسدودیت خارج شد.', reply_markup=admin_main_keyboard())
+        return
+
+    return IB1910_prev_handle_callback(cb)
+
+
+WATCHER2_VERSION = 'v19.1.0-ban-unban'
 
 
 if __name__ == "__main__":

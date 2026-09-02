@@ -1,7 +1,13 @@
 # Changelog
 
-## v19.0.17 — Admin removal and management
+## v19.1.0 — Ban / Unban users + Admin management
 
+- Added **🚫 مسدود کردن کاربر** button to the Telegram admin panel.
+- Admin sends a Chat ID; the bot asks for confirmation, then blocks the user.
+- Banned users receive **no response** from the bot in any situation — text, callback buttons, and media are all silently ignored.
+- Added **✅ آنبن کردن** button to list banned users and unban them with a single tap.
+- Ban data is stored in the `banned_users` SQLite table and survives service restarts.
+- The primary admin and currently acting admin cannot be banned.
 - Added `👮 مدیریت مدیرها` to the Telegram admin panel.
 - Lists every configured bot admin and marks the protected primary admin/current admin.
 - Added two-step `🗑 حذف` confirmation for removable admins.
@@ -9,7 +15,7 @@
 - Removing an admin immediately updates `ADMIN_CHAT_IDS` and reloads runtime configuration; no database migration is required.
 - The removed account receives a notification and can still use the bot as a normal user.
 - Existing `/addadmin` and add-admin flow remain compatible.
-- Updated remote-panel User-Agent to `IronBot/19.0.17`.
+- Updated remote-panel User-Agent to `IronBot/19.1.0`.
 
 ## v19.0.16 — Single config with multi-user capacity
 

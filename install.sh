@@ -490,7 +490,7 @@ main_menu(){
     ensure_config
     while true; do
         clear
-        echo -e "${CYAN}IronBot v19.0.17 - Admin management + single config user capacity${RESET}"
+        echo -e "${CYAN}IronBot v19.1.0 - Ban/Unban users + Admin management${RESET}"
         echo "[1]  Install/update permanently"
         echo "[2]  Run temporary in foreground"
         echo "[3]  Configure"

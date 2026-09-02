@@ -1,8 +1,21 @@
-# IronBot v19.0.17
+# IronBot v19.1.0
 
-## v19.0.17 admin management
+## v19.1.0 — Ban / Unban users
 
-The Telegram admin panel now includes **Admin Management**. Existing admins are listed with safe two-step removal controls. The primary admin (the first ID in `ADMIN_CHAT_IDS`), the last remaining admin, and the currently acting admin cannot be removed. Removing an admin revokes management access only; it does not delete the Telegram user or normal customer data.
+The Telegram admin panel now includes **Ban** and **Unban** buttons:
+
+1. Press **🚫 مسدود کردن کاربر** and send the Chat ID of the user to block.
+2. The bot asks for confirmation, then permanently bans the user.
+3. A banned user receives **no response** from the bot in any situation — text messages, callback buttons, and media are all silently ignored.
+4. Press **✅ آنبن کردن** to see the list of banned users and unban any of them with a single tap.
+5. Admins cannot be banned.
+
+Ban data is stored in the `banned_users` table (SQLite) and survives service restarts.
+
+
+## Admin management
+
+The Telegram admin panel also includes **Admin Management**. Existing admins are listed with safe two-step removal controls. The primary admin (the first ID in `ADMIN_CHAT_IDS`), the last remaining admin, and the currently acting admin cannot be removed. Removing an admin revokes management access only; it does not delete the Telegram user or normal customer data.
 
 
 ## One config with multi-user capacity
@@ -13,7 +26,7 @@ A 2-user plan now creates exactly **one config/subscription** that can be shared
 - IronPanel: one API user is created, `connection_limit` is patched, and IronBot's API-token session/IP monitor uses the same capacity as a guard.
 - No child/bundle service is created on approval or retry.
 
-Current release: **v19.0.17**
+Current release: **v19.1.0**
 
 **Iron Bot** is a Telegram sales and management bot for VPN panels. This release keeps existing **x-ui / 3x-ui** delivery support and adds first-class **IronPanel API** delivery, including multiple IronPanel instances in the same bot.
 
