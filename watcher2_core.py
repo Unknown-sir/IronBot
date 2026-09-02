@@ -12196,7 +12196,8 @@ def _bulkfree_run(admin_chat, temp):
     if is_ip and not protocols:
         send_message(admin_chat, 'برای ساخت عمده روی IronPanel حداقل یک پروتکل لازم است.', reply_markup=admin_main_keyboard()); return
     set_user_state(admin_chat, '', {})
-    send_message(admin_chat, f'⏳ ساخت عمده {count} کانفیگ شروع شد. لینک ساب هر کانفیگ هم‌زمان یک‌به‌یک برای شما ارسال می‌شود.')
+    send_message(admin_chat, f'⏳ ساخت عمده {count} کانفیگ شروع شد. هر کانفیگ به‌صورت جداگانه ساخته می‌شود و لینک ساب آن بلافاصله برای شما ارسال می‌شود؛ بعد به سراغ کانفیگ بعدی می‌روم.')
+    send_gap = float(CFG.get('BULK_CONFIG_SEND_DELAY') or 1.0)
     ok_items, fail_items = [], []
     for number in range(start, end + 1):
         uname = f'{prefix}{number}'
@@ -12205,7 +12206,7 @@ def _bulkfree_run(admin_chat, temp):
             oid = _ib199_insert_bulk_order(admin_chat, gb, duration_days, panel_id, inbound_id, uname, pwd, protocols)
             result = create_xui_client_for_order(oid, restart=False)
             ok_items.append((oid, uname, pwd, result))
-            # v19.1.1: forward each config's sub link to the admin immediately, one message per config.
+            # v19.1.1: build one config, forward its sub link to the admin, then move to the next.
             try:
                 sub = result.get('sub_url') or ''
                 cl = result.get('config_link') or ''
@@ -12221,7 +12222,7 @@ def _bulkfree_run(admin_chat, temp):
         except Exception as e:
             logging.exception('v19.0.9 bulk create failed')
             fail_items.append((uname, str(e)))
-        time.sleep(float(CFG.get('BULK_CREATE_DELAY', '0.10') or 0.10))
+        time.sleep(send_gap)
     if ok_items and not is_ip:
         try:
             restart_xui(reason=f'admin bulk create {len(ok_items)} configs')
